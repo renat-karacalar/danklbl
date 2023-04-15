@@ -1,7 +1,5 @@
 import os
 import fitz
-from PIL import Image
-from PyPDF2 import PdfMerger
 import argparse
 from time import perf_counter
 import statistics
@@ -37,47 +35,42 @@ class LabelGenerator:
                                                    file.replace(ending, ""), ending])
 
     def convert_pdf(self, zip_info):
-        merger = PdfMerger()
+        merged_pdf = fitz.open()
         pbar = tqdm(total=len(os.listdir(self.path_tmp)))
 
+        # iterate over path_tmp folder to open extracted pdf files
         for root, dirs, files in os.walk(self.path_tmp):
             for file in files:
                 if file.endswith(".pdf"):
-                    # open pdf files
-                    pbar.set_description("Editing {}".format(file))
 
-                    doc = fitz.open(os.path.abspath(os.path.join(root, file)))  # open document
+                    pbar.set_description("Editing {}".format(file))
+                    # open .pdf file
+                    doc = fitz.open(os.path.abspath(os.path.join(root, file)))
+
                     for page in doc:
                         # convert pdf into png file
-                        pix = page.get_pixmap(dpi=self.dpi)  # render page to an image
-                        pix.save(os.path.abspath(os.path.join(self.path_tmp, file.replace(".pdf", ".png"))))
+                        # test
+                        r1 = fitz.Rect(round(page.rect.width / 100 * self.corners[0]),
+                                       round(page.rect.height / 100 * self.corners[1]),
+                                       round(page.rect.width / 100 * self.corners[2]),
+                                       round(page.rect.height / 100 * self.corners[3]))
 
-                        im = Image.open(os.path.abspath(os.path.join(self.path_tmp, file.replace(".pdf", ".png"))))
+                        page.set_cropbox(r1)
+                        page.set_rotation(90)
 
-                        im1 = im.crop((round(pix.width / 100 * self.corners[0]),
-                                       round(pix.height / 100 * self.corners[1]),
-                                       round(pix.width / 100 * self.corners[2]),
-                                       round(pix.height / 100 * self.corners[3]))). \
-                            transpose(Image.ROTATE_270).convert('RGB')
-
-                        im1.save(os.path.abspath(os.path.join(self.path_tmp, file)))
-
-                        merger.append(os.path.abspath(os.path.join(self.path_tmp, file)))
-
+                    merged_pdf.insert_pdf(doc)
                     doc.close()
                     pbar.update(1)
         pbar.close()
         tqdm.write("Merging PDFs")
-        merger.write(os.path.abspath(os.path.join(self.path_label, zip_info[1] + ".pdf")))
-        merger.close()
-
+        merged_pdf.save(os.path.abspath(os.path.join(self.path_label, zip_info[1] + ".pdf")))
         tqdm.write("Finishing cleanup...")
+
         if not self.keepfiles:
             self.cleanup()
 
         # os.rename(zip_info[0], os.path.join(self.path_zip_old, zip_info[1] + zip_info[2]))
-        tqdm.write("Finished! {} moved to {}".format(zip_info[1]+zip_info[2], self.path_zip_old))
-
+        tqdm.write("Finished! {} moved to {}".format(zip_info[1] + zip_info[2], self.path_zip_old))
 
     def move_zip(self):
         pass
@@ -99,11 +92,12 @@ def timer(x):
     t_v = []
     for i in range(x):
         t1 = perf_counter()
-        # test1 = LabelGenerator(, "zip/", "tmp/", "label/", "zip_old/", [60, 90, 2440, 1680], True, 50
+        test1 = LabelGenerator([".zip"], "zip/", "tmp/", "label/", "zip_old/", [2.418, 2.566, 98.347, 47.891], True,
+                               100)
         test1.unzip()
         t2 = perf_counter()
         t_v.append(t2 - t1)
-        clean_up()
+
     print(statistics.mean(t_v))
 
 
@@ -124,7 +118,7 @@ parser.add_argument("-pl", "-pathlabel", nargs="?", default="label/")
 parser.add_argument("-po", "-pathzipold", nargs="?", default="zip_old/")
 parser.add_argument("-c", "-corners", type=int, nargs=4, default=[2.418, 2.566, 98.347, 47.891])
 parser.add_argument("-kf", "-keepfiles", action="store_true")
-parser.add_argument("-d", "-dpi", type=int, nargs="?", default=50)
+parser.add_argument("-d", "-dpi", type=int, nargs="?", default=300)
 args = parser.parse_args()
 
 args.z.append(".zip")
@@ -133,9 +127,11 @@ test1 = LabelGenerator(file_endings=args.z, path_zip=args.pz, path_tmp=args.pt, 
                        path_zip_old=args.po, corners=args.c, keepfiles=args.kf, dpi=args.d)
 test1.unzip()
 
+# timer(5)
+
 # bugs
 # check if file exists before moving -> oldzip
 
-# features
+# to-be done
 # silent mode
 # check if working directories exist
