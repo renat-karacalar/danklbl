@@ -3,10 +3,22 @@ import fitz
 import argparse
 from pyunpack import Archive
 import shutil
+import pkg_resources
+from datetime import datetime
+
+
+def check_dep():
+    dependencies = [
+        'pyunpack',
+        'patool',
+        'PyMuPDF',
+    ]
+    pkg_resources.require(dependencies)
 
 
 class LabelGenerator:
-    def __init__(self, file_endings, path_zip, path_tmp, path_label, path_zip_old, corners, rotation, keepfiles):
+    def __init__(self, file_endings, path_zip, path_tmp, path_label, path_zip_old, corners, rotation, keepfiles,
+                 only_pdf, create_dir):
 
         self.file_endings = file_endings
         self.path_zip = os.path.abspath(path_zip)
@@ -16,8 +28,11 @@ class LabelGenerator:
         self.corners = corners
         self.rotation = rotation
         self.keepfiles = keepfiles
+        self.only_pdf = only_pdf
+        self.create_dir = create_dir
 
         self.check_dirs()
+        check_dep()
 
     def check_dirs(self):
         if not os.path.isdir(self.path_zip): os.mkdir(self.path_zip)
@@ -66,16 +81,23 @@ class LabelGenerator:
                     # close pdf file
                     doc.close()
 
-        # save merged pdf file in path_label based on the zip name
-        merged_pdf.save(os.path.abspath(os.path.join(self.path_label, zip_info[1] + ".pdf")))
+        if merged_pdf.page_count >= 1:
+            # save merged pdf file in path_label based on the zip name
+            if os.path.isfile(os.path.abspath(os.path.join(self.path_label, zip_info[1] + ".pdf"))):
+                merged_pdf.save(os.path.abspath(os.path.join(self.path_label, zip_info[1] + "_alt.pdf")))
+
+            else:
+                merged_pdf.save(os.path.abspath(os.path.join(self.path_label, zip_info[1] + ".pdf")))
 
         # if not specified otherwise (-kf) the pdf files extracted in path_tmp are deleted
         if not self.keepfiles:
             self.cleanup()
 
-        # move used zip file into the zip_old dir
-        if not os.path.isfile(os.path.join(self.path_zip_old, zip_info[1] + zip_info[2])):
-            shutil.move(zip_info[0], os.path.join(self.path_zip_old, zip_info[1] + zip_info[2]))
+        if not self.only_pdf:
+            # move used zip file into the zip_old dir
+            if not os.path.isfile(os.path.join(self.path_zip_old, zip_info[1] + zip_info[2])):
+                shutil.move(zip_info[0], os.path.join(self.path_zip_old, zip_info[1] + zip_info[2]))
+                print("Used archive ")
 
     def cleanup(self):
         for root, dirs, files in os.walk(self.path_tmp):
@@ -119,14 +141,27 @@ parser.add_argument("-r", "-rotation", type=int, nargs="?", default=90, choices=
                     help="Specify the degree of rotation (clockwise) that is necessary - Default value of 90°")
 parser.add_argument("-kf", "-keepfiles", action="store_true",
                     help="If this flag is set the extracted .pdf files are not deleted after being extracted")
+parser.add_argument("-pdf", action="store_true",
+                    help="If this flag is set only .pdf files in the tmp/ dir are cropped / merged -"
+                         " no archives are extracted")
+parser.add_argument("-d", "-dir", action="store_true",
+                    help="If this flag is set only the specified dirs are created (or default values)")
 
 args = parser.parse_args()
 
 args.z.append(".zip")
 
-test1 = LabelGenerator(file_endings=args.z, path_zip=args.pz, path_tmp=args.pt, path_label=args.pl,
-                       path_zip_old=args.po, corners=args.c, rotation=args.r, keepfiles=args.kf)
-test1.unzip()
+lblgen = LabelGenerator(file_endings=args.z, path_zip=args.pz, path_tmp=args.pt, path_label=args.pl,
+                        path_zip_old=args.po, corners=args.c, rotation=args.r, keepfiles=args.kf, only_pdf=args.pdf,
+                        create_dir=args.d)
+if lblgen.create_dir:
+    lblgen.check_dirs()
+
+elif lblgen.only_pdf:
+    lblgen.convert_pdf(["", datetime.now().strftime('%Y-%m-%d %H:%M:%S').replace(":", "-") + "_merged"])
+
+else:
+    lblgen.unzip()
 
 # bugs
 # doesn't overwrite existing pdf file
@@ -145,3 +180,9 @@ test1.unzip()
 # removed tqdm as due to the increase in performance it doesn't really make any sense
 # added possibility to rotate pdf via -r arg
 # removed dpi setting as it is now mundane
+#
+# v.0.4
+# added requirements
+# added functionality (-d) to only create necessary dirs
+# added functionality (-pdf) to only convert .pdf files inside the tmp/ (or through -pt specified) location
+# added fail-safe mechanisms
